@@ -120,10 +120,13 @@ class PGSessionStore(sessions.SessionStore):
             dict(sid=session.sid, payload=payload),
         )
 
+    def delete(self, session):
+        self._delete_by_sid([session.sid])
+
     @with_lock
     @with_cursor
-    def delete(self, session):
-        self._cr.execute("DELETE FROM http_sessions WHERE sid=%s", (session.sid,))
+    def _delete_by_sid(self, sids):
+        self._cr.execute("DELETE FROM http_sessions WHERE sid IN %s", (tuple(sids),))
 
     @with_lock
     @with_cursor
@@ -148,6 +151,22 @@ class PGSessionStore(sessions.SessionStore):
             "WHERE now() at time zone 'UTC' - write_date > %s",
             (f"{max_lifetime} seconds",),
         )
+
+    @with_lock
+    @with_cursor
+    def get_missing_session_identifiers(self, session_identifiers):
+        """Check if a session identifier exists in the database.
+        Return a set of missing session identifiers.
+        """
+        self._cr.execute(
+            "SELECT sid FROM http_sessions WHERE sid IN %s",
+            (tuple(session_identifiers),),
+        )
+        existing_session_identifiers = {row[0] for row in self._cr.fetchall()}
+        return set(session_identifiers) - existing_session_identifiers
+
+    def delete_from_identifiers(self, identifiers):
+        self._delete_by_sid(identifiers)
 
 
 _original_session_store = http.root.__class__.session_store
